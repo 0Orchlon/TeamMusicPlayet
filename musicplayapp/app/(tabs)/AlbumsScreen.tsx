@@ -8,7 +8,7 @@ const AlbumsScreen = () => {
   // Fetch albums from the backend
   const fetchAlbums = async () => {
     try {
-      const response = await fetch(`${API_URL}/?action=get_albums`, {
+      const response = await fetch(`${API_URL}/apimusicplayer`, {
         method: "GET",
       });
       const data = await response.json();

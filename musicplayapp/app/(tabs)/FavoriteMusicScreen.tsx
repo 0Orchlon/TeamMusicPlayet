@@ -8,7 +8,7 @@ const FavoriteMusicScreen = () => {
   // Fetch favorite songs from the backend
   const fetchFavoriteSongs = async () => {
     try {
-      const response = await fetch(`${API_URL}/?action=get_my_favorites`, {
+      const response = await fetch(`${API_URL}/apimusicplayer`, {
         method: "GET",
       });
       const data = await response.json();
