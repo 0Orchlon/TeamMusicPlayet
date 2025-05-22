@@ -1,3 +1,4 @@
+import MusicPlayer from "@/components/MusicPlayer";
 import { API_URL } from "@/constants/api";
 import React, { useEffect, useState } from "react";
 import {
@@ -7,6 +8,7 @@ import {
   Image,
   Modal,
   SafeAreaView,
+  StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
@@ -18,18 +20,23 @@ const AlbumsScreen = () => {
   const [newAlbumName, setNewAlbumName] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // Songs state
   const [songs, setSongs] = useState<any[]>([]);
-  // Modal visibility
   const [modalVisible, setModalVisible] = useState(false);
-  // Album selected to add songs
   const [selectedAlbum, setSelectedAlbum] = useState<any | null>(null);
-  // Songs selected to add
   const [selectedSongs, setSelectedSongs] = useState<Set<number>>(new Set());
+  const [albumSongsMap, setAlbumSongsMap] = useState<Record<number, number[]>>(
+    {}
+  );
+  const [albumSongsVisible, setAlbumSongsVisible] = useState(false);
+  const [albumSongsList, setAlbumSongsList] = useState<any[]>([]);
+  const [albumSongsTitle, setAlbumSongsTitle] = useState("");
+const [selectedMusic, setSelectedMusic] = useState(null);
+const [isPlayerVisible, setIsPlayerVisible] = useState(false);
 
-  // To keep track of album songs for duplicate check
-  // You might need to fetch songs per album or you can have the backend provide this info
-  const [albumSongsMap, setAlbumSongsMap] = useState<Record<number, number[]>>({});
+const handlePlayMusic = (item: any) => {
+  setSelectedMusic(item);
+  setIsPlayerVisible(true);
+};
 
   const fetchAlbums = async () => {
     try {
@@ -43,9 +50,6 @@ const AlbumsScreen = () => {
 
       if (data.resultCode === 200) {
         setAlbums(data.data || []);
-
-        // Optional: fetch songs for each album here or have backend send it with album data
-        // For demo, assume each album has 'songs' field with list of song ids
         let map: Record<number, number[]> = {};
         (data.data || []).forEach((album: any) => {
           map[album.id] = album.songs || [];
@@ -104,9 +108,12 @@ const AlbumsScreen = () => {
       if (data.resultCode === 200) {
         Alert.alert("Success", "Album added!");
         setNewAlbumName("");
-        fetchAlbums(); // Refresh album list
+        fetchAlbums();
       } else {
-        Alert.alert("Failed to add album", data.resultMessage || "Unknown error");
+        Alert.alert(
+          "Failed to add album",
+          data.resultMessage || "Unknown error"
+        );
       }
     } catch (error) {
       console.error("Error adding album:", error);
@@ -115,6 +122,28 @@ const AlbumsScreen = () => {
       setLoading(false);
     }
   };
+const handleRemoveFromAlbum = async (songId: number, albumId: number) => {
+  try {
+    const response = await fetch(`${API_URL}/apimusicplayer/`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "remove_from_album",
+        song_id: songId,
+        album_id: albumId,
+      }),
+    });
+
+    const result = await response.json();
+    if (result.resultCode === 200) {
+      setAlbumSongsList(prev => prev.filter(item => item.song_id !== songId));
+    } else {
+      alert("Failed to remove song");
+    }
+  } catch (err) {
+    console.error(err);
+  }
+};
 
   const addSongToAlbum = async (song_id: number, album_id: number) => {
     try {
@@ -123,22 +152,24 @@ const AlbumsScreen = () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "add_to_album",
-          song_id: song_id,
-          album_id: album_id,
+          song_id,
+          album_id,
         }),
       });
-      console.log(res)
       const data = await res.json();
 
       if (data.resultCode === 200) {
-        Alert.alert("Success", "Song added to album!");
-        // Update albumSongsMap so the song shows as added
         setAlbumSongsMap((prev) => {
-          const newSongs = prev[album_id] ? [...prev[album_id], song_id] : [song_id];
+          const newSongs = prev[album_id]
+            ? [...prev[album_id], song_id]
+            : [song_id];
           return { ...prev, [album_id]: newSongs };
         });
       } else {
-        Alert.alert("Failed to add song", data.resultMessage || "Unknown error");
+        Alert.alert(
+          "Failed to add song",
+          data.resultMessage || "Unknown error"
+        );
       }
     } catch (error) {
       console.error("Error adding song to album:", error);
@@ -146,15 +177,13 @@ const AlbumsScreen = () => {
     }
   };
 
-  // Open modal for selecting songs to add to an album
   const openAddSongsModal = (album: any) => {
     setSelectedAlbum(album);
-    setSelectedSongs(new Set()); // clear selected songs
+    setSelectedSongs(new Set());
     fetchSongs();
     setModalVisible(true);
   };
 
-  // Toggle song selection
   const toggleSelectSong = (songId: number) => {
     setSelectedSongs((prev) => {
       const newSet = new Set(prev);
@@ -164,13 +193,13 @@ const AlbumsScreen = () => {
     });
   };
 
-  // Add selected songs to album, checking duplicates
   const addSelectedSongs = async () => {
     if (!selectedAlbum) return;
     const albumId = selectedAlbum.id;
     const existingSongs = albumSongsMap[albumId] || [];
-
-    const songsToAdd = Array.from(selectedSongs).filter((songId) => !existingSongs.includes(songId));
+    const songsToAdd = Array.from(selectedSongs).filter(
+      (songId) => !existingSongs.includes(songId)
+    );
 
     if (songsToAdd.length === 0) {
       Alert.alert("Info", "Selected songs are already in the album");
@@ -180,13 +209,11 @@ const AlbumsScreen = () => {
     setLoading(true);
     try {
       for (const songId of songsToAdd) {
-        // Await each add call to avoid flooding server (optional: parallelize if backend supports)
-        // eslint-disable-next-line no-await-in-loop
         await addSongToAlbum(songId, albumId);
       }
       Alert.alert("Success", "Selected songs added to album!");
       setModalVisible(false);
-      fetchAlbums(); // Refresh albums and songs inside if necessary
+      fetchAlbums();
     } catch (error) {
       console.error("Error adding selected songs:", error);
       Alert.alert("Error", "Failed to add some songs");
@@ -198,21 +225,44 @@ const AlbumsScreen = () => {
   useEffect(() => {
     fetchAlbums();
   }, []);
+  const openAlbumSongsModal = async (album: any) => {
+    try {
+      const response = await fetch(`${API_URL}/apimusicplayer/`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action: "get_album_music",
+          id: album.id,
+        }),
+      });
+
+      const json = await response.json();
+
+      if (json.resultCode === 200) {
+        setAlbumSongsList(json.data);
+        setAlbumSongsTitle(album.name);
+        setAlbumSongsVisible(true);
+      } else {
+        Alert.alert("Error", json.resultMessage || "Failed to load songs");
+      }
+    } catch (error) {
+      console.error("Fetch error:", error);
+      Alert.alert("Network Error", "Unable to load album songs.");
+    }
+  };
 
   const renderAlbumItem = ({ item }: any) => (
     <TouchableOpacity
+      onPress={() => openAlbumSongsModal(item)}
       style={{
         flexDirection: "row",
         padding: 10,
         borderBottomWidth: 1,
         borderBottomColor: "#ddd",
       }}
-      onPress={() => console.log("View album:", item.name)}
     >
-      <Image
-        source={{ uri: item.thumbnail || "default-thumbnail-url.jpg" }}
-        style={{ width: 50, height: 50, marginRight: 10 }}
-      />
       <View style={{ flex: 1 }}>
         <Text style={{ fontWeight: "bold" }}>{item.name}</Text>
         <Text>{item.artist}</Text>
@@ -223,8 +273,9 @@ const AlbumsScreen = () => {
 
   const renderSongItem = ({ item }: any) => {
     const isSelected = selectedSongs.has(item.id);
-    // Check if song is already in album
-    const alreadyInAlbum = selectedAlbum ? albumSongsMap[selectedAlbum.id]?.includes(item.id) : false;
+    const alreadyInAlbum = selectedAlbum
+      ? albumSongsMap[selectedAlbum.id]?.includes(item.id)
+      : false;
 
     return (
       <TouchableOpacity
@@ -233,12 +284,18 @@ const AlbumsScreen = () => {
           padding: 10,
           borderBottomWidth: 1,
           borderBottomColor: "#ccc",
-          backgroundColor: alreadyInAlbum ? "#ddd" : isSelected ? "#aaf" : "white",
+          backgroundColor: alreadyInAlbum
+            ? "#ddd"
+            : isSelected
+            ? "#aaf"
+            : "white",
         }}
         disabled={alreadyInAlbum}
         onPress={() => toggleSelectSong(item.id)}
       >
-        <Text style={{ flex: 1 }}>{item.title} - {item.artist}</Text>
+        <Text style={{ flex: 1 }}>
+          {item.title} - {item.artist}
+        </Text>
         {alreadyInAlbum && <Text style={{ color: "green" }}>Added</Text>}
         {!alreadyInAlbum && isSelected && <Text>✓</Text>}
       </TouchableOpacity>
@@ -251,7 +308,6 @@ const AlbumsScreen = () => {
         Albums
       </Text>
 
-      {/* Add Album Form */}
       <View style={{ marginBottom: 20 }}>
         <TextInput
           placeholder="Album Name"
@@ -265,7 +321,11 @@ const AlbumsScreen = () => {
             borderRadius: 4,
           }}
         />
-        <Button title={loading ? "Saving..." : "Add Album"} onPress={addAlbum} disabled={loading} />
+        <Button
+          title={loading ? "Saving..." : "Add Album"}
+          onPress={addAlbum}
+          disabled={loading}
+        />
       </View>
 
       {albums.length > 0 ? (
@@ -282,7 +342,6 @@ const AlbumsScreen = () => {
         <Text>No albums found!</Text>
       )}
 
-      {/* Modal to select songs */}
       <Modal
         visible={modalVisible}
         animationType="slide"
@@ -301,14 +360,106 @@ const AlbumsScreen = () => {
           />
 
           <View style={{ marginTop: 20 }}>
-            <Button title="Add Selected Songs" onPress={addSelectedSongs} disabled={loading || selectedSongs.size === 0} />
+            <Button
+              title="Add Selected Songs"
+              onPress={addSelectedSongs}
+              disabled={loading || selectedSongs.size === 0}
+            />
             <View style={{ height: 10 }} />
             <Button title="Cancel" onPress={() => setModalVisible(false)} />
           </View>
         </SafeAreaView>
       </Modal>
+      <Modal
+        visible={albumSongsVisible}
+        animationType="slide"
+        onRequestClose={() => setAlbumSongsVisible(false)}
+      >
+        <SafeAreaView style={{ flex: 1, padding: 16 }}>
+          <Text style={{ fontSize: 20, fontWeight: "bold", marginBottom: 10 }}>
+            Songs in "{albumSongsTitle}"
+          </Text>
+
+          {albumSongsList.length > 0 ? (
+            <FlatList
+              data={albumSongsList}
+              keyExtractor={(item) => item.id.toString()}
+              renderItem={({ item }) => (
+  <View
+    style={{
+      flexDirection: "row",
+      padding: 10,
+      borderBottomWidth: 1,
+      borderBottomColor: "#ccc",
+      alignItems: "center",
+    }}
+  >
+    <Image
+      source={{ uri: `${API_URL}/${item.thumbnail}` }}
+      style={styles.thumbnail}
+    />
+    <View style={{ flex: 1, marginLeft: 10 }}>
+      <Text style={{ fontWeight: "bold" }}>{item.title}</Text>
+      <Text>{item.artist ?? "Unknown artist"}</Text>
+      <Text>{item.duration}</Text>
+       <View style={{ flexDirection: "row", marginTop: 5 }}>
+        <TouchableOpacity
+          onPress={() => handlePlayMusic(item)}
+          style={{
+            padding: 6,
+            backgroundColor: "#1EB1FC",
+            borderRadius: 6,
+            marginRight: 8,
+          }}
+        >
+          <Text style={{ color: "white" }}>Play</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => handleRemoveFromAlbum(item.song_id, item.album_id)}
+          style={{
+            padding: 6,
+            backgroundColor: "#ff4d4d",
+            borderRadius: 6,
+          }}
+        >
+          <Text style={{ color: "white" }}>Remove</Text>
+        </TouchableOpacity>
+        </View>
+                  </View>
+                </View>
+              )}
+            />
+          ) : (
+            <Text>No songs in this album.</Text>
+          )}
+
+          <View style={{ marginTop: 20 }}>
+            <Button title="Close" onPress={() => setAlbumSongsVisible(false)} />
+          </View>
+        </SafeAreaView>
+      </Modal>
+
+      <MusicPlayer
+  selectedMusic={selectedMusic}
+  isVisible={isPlayerVisible}
+  onClose={() => setIsPlayerVisible(false)}
+/>
     </SafeAreaView>
   );
 };
 
+const styles = StyleSheet.create({
+  songItem: {
+    flexDirection: "row",
+    padding: 10,
+    borderBottomWidth: 1,
+    borderColor: "#eee",
+  },
+  thumbnail: {
+    width: 60,
+    height: 60,
+    marginRight: 10,
+    borderRadius: 6,
+  },
+});
 export default AlbumsScreen;
