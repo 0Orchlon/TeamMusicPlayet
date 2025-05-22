@@ -1,7 +1,8 @@
 import { API_URL } from "@/constants/api";
 import Slider from "@react-native-community/slider";
+import { useFocusEffect } from "@react-navigation/native";
 import { Audio } from "expo-av";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   FlatList,
   Image,
@@ -12,6 +13,8 @@ import {
   View,
 } from "react-native";
 import Modal from "react-native-modal";
+import Icon from "react-native-vector-icons/FontAwesome";
+
 
 const MusicListScreen = () => {
   const [musicList, setMusicList] = useState<any[]>([]);
@@ -22,37 +25,91 @@ const MusicListScreen = () => {
   const [positionMillis, setPositionMillis] = useState(0);
   const [durationMillis, setDurationMillis] = useState(1); // avoid div by zero
   const [value, setValue] = useState(0);
+  const [favorites, setFavorites] = useState<{ [key: number]: boolean }>({});
+
   const min = 0;
   const max = 100;
   const step = 1;
 
+const fetchMusicAndFavorites = async () => {
+  try {
+    // Fetch music list
+    const resMusic = await fetch(`${API_URL}/apimusicplayer/`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "get_my_music" }),
+    });
+    const dataMusic = await resMusic.json();
 
-  useEffect(() => {
-    const fetchMusic = async () => {
-      try {
-        const res = await fetch(`${API_URL}/apimusicplayer/`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "get_my_music" }),
+    if (dataMusic.resultCode === 200) {
+      setMusicList(dataMusic.data);
+
+      // Fetch favorites
+      const resFaves = await fetch(`${API_URL}/apimusicplayer/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "get_fave" }),
+      });
+      const dataFaves = await resFaves.json();
+
+      const favMap: { [key: number]: boolean } = {};
+      if (dataFaves.resultCode === 200 && Array.isArray(dataFaves.data)) {
+        dataFaves.data.forEach((favItem: any) => {
+          const id = favItem.song_id ?? favItem.id;
+          if (id != null) {
+            favMap[id] = true;
+          }
         });
-        const data = await res.json();
-        if (data.resultCode === 200) {
-          setMusicList(data.data);
-        }
-      } catch (error) {
-        console.error("Failed to fetch music:", error);
       }
-    };
 
-    fetchMusic();
+      setFavorites(favMap);
+    }
+  } catch (error) {
+    console.error("Failed to fetch music or favorites:", error);
+  }
+};
+
+// Call fetch on screen focus
+useFocusEffect(
+  useCallback(() => {
+    fetchMusicAndFavorites();
 
     return () => {
-      // Clean up sound when component unmounts
       if (soundRef.current) {
         soundRef.current.unloadAsync();
       }
     };
-  }, []);
+  }, [])
+);
+useEffect(() => {
+  fetchMusicAndFavorites();
+
+  return () => {
+    if (soundRef.current) {
+      soundRef.current.unloadAsync();
+    }
+  };
+}, []);
+
+  const toggleFavorite = async (musicId: number) => {
+    const isFav = favorites[musicId];
+    setFavorites((prev) => ({ ...prev, [musicId]: !isFav }));
+
+    try {
+      await fetch(`${API_URL}/apimusicplayer/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: isFav ? "remove_fave" : "add_fave", // <-- toggle action
+          song_id: musicId,
+        }),
+      });
+    } catch (error) {
+      console.error("Failed to toggle favorite:", error);
+      // Optionally revert state if API fails
+      setFavorites((prev) => ({ ...prev, [musicId]: isFav }));
+    }
+  };
 
   const playSound = async (audioUrl: string) => {
     try {
@@ -110,21 +167,30 @@ const MusicListScreen = () => {
   };
 
   const renderItem = ({ item }: { item: any }) => (
-    <TouchableOpacity
-      onPress={() => handleSongPress(item)}
-      style={styles.songItem}
-    >
-      <Image
-        source={{ uri: `${API_URL}/${item.thumbnail}` }}
-        style={styles.thumbnail}
+  <TouchableOpacity
+    onPress={() => handleSongPress(item)}
+    style={styles.songItem}
+  >
+    <Image
+      source={{ uri: `${API_URL}/${item.thumbnail}` }}
+      style={styles.thumbnail}
+    />
+
+    <View style={{ flex: 1 }}>
+      <Text style={{ fontWeight: "bold" }}>{item.title}</Text>
+      <Text>{item.artist}</Text>
+      <Text>{item.duration}</Text>
+    </View>
+
+    <TouchableOpacity onPress={() => toggleFavorite(item.id)}>
+      <Icon
+        name={favorites[item.id] ? "star" : "star-o"}
+        size={24}
+        color={favorites[item.id] ? "gold" : "gray"}
       />
-      <View>
-        <Text style={{ fontWeight: "bold" }}>{item.title}</Text>
-        <Text>{item.artist}</Text>
-        <Text>{item.duration}</Text>
-      </View>
     </TouchableOpacity>
-  );
+  </TouchableOpacity>
+);
   const onPlaybackStatusUpdate = (status: any) => {
     if (status.isLoaded) {
       setPositionMillis(status.positionMillis);
@@ -281,4 +347,6 @@ const styles = StyleSheet.create({
   },
 });
 
+
 export default MusicListScreen;
+
